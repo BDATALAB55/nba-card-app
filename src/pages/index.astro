@@ -1,69 +1,29 @@
 ---
 export const prerender = false;
-
 import Layout from '../layouts/Layout.astro';
-import fs from 'node:fs';
-import path from 'node:path';
 
-const folderParam = Astro.url.searchParams.get('folder');
-const folderName = folderParam || "260115/NBA_Cards_0022500578_20260115";
+// 1. 表示したい特定のフォルダ名（GitHub上のパス）を指定
+const folderName = "260115/NBA_Cards_0022500578_20260115";
 
-const folderBaseName = folderName.includes('/') ? folderName.split('/').pop() : folderName;
-const parts = folderBaseName.split('_');
-const gameId = parts[2] || "";
-const fullDate = parts[parts.length - 1] || "";
-const shortDate = fullDate.substring(2);
+// 2. 画像のベースURL（先ほど成功したnba-card-dataリポジトリを指す）
+const githubBase = "https://raw.githubusercontent.com/BDATALAB55/nba-card-data/main/players";
 
-const publicDir = path.resolve('./public');
-const playerOutputDir = path.join(publicDir, 'output', 'players', folderName);
-
-let playerFiles = [];
-if (fs.existsSync(playerOutputDir)) {
-  playerFiles = fs.readdirSync(playerOutputDir).filter(file => file.endsWith('.png'));
-}
-
-const detectedTeams = [...new Set(playerFiles.map(f => f.split('_')[0]))]
-  .filter(t => t && t !== 'NBA' && t !== 'NBA_Cards');
-
-// 上がアウェイ、下がホーム
-const teamAway = detectedTeams[1] || ""; 
-const teamHome = detectedTeams[0] || "";
-
-const processTeam = (teamName) => {
-  if (!teamName) return [];
-  return playerFiles
-    .filter(file => file.startsWith(teamName))
-    .map(file => {
-      const p = file.replace('.png', '').split('_');
-      const playerNo = p[1];
-      const playerName = p.slice(2).join(' ');
-      
-      return {
-        team: p[0],
-        no: playerNo,
-        name: playerName,
-        imagePath: `/output/players/${folderName}/${file}`,
-        playerLink: `/players/${folderName}/${p[0]}_${playerNo}` 
-      };
-    })
-    .sort((a, b) => parseInt(a.no) - parseInt(b.no));
-};
-
-const awayData = processTeam(teamAway);
-const homeData = processTeam(teamHome);
-
-const reportDir = path.join(publicDir, 'output', 'reports', 'NBA', shortDate);
-let reportImagePath = "";
-if (fs.existsSync(reportDir)) {
-  const possibleNames = [
-    `NBA_${fullDate}_${gameId}_${teamHome}_${teamAway}.png`,
-    `NBA_${fullDate}_${gameId}_${teamAway}_${teamHome}.png`
-  ];
-  const foundFile = possibleNames.find(name => fs.existsSync(path.join(reportDir, name)));
-  if (foundFile) reportImagePath = `/output/reports/NBA/${shortDate}/${foundFile}`;
-}
-
-const formattedDate = fullDate ? `${fullDate.substring(0, 4)}.${fullDate.substring(4, 6)}.${fullDate.substring(6, 8)}` : "DATE";
+// 3. 一旦テストとして、手動で選手データを定義（後で自動化できます）
+// ※fs.readdirSyncが使えないため、まずは表示を確認します
+const homeData = [
+  {
+    name: "Player Name",
+    team: "TEAM",
+    no: "0",
+    imagePath: `${githubBase}/${folderName}/YOUR_IMAGE_NAME.png`, // ここに実際のファイル名を1つ入れる
+    playerLink: "#"
+  }
+];
+const awayData = [];
+const teamHome = "HOME";
+const teamAway = "AWAY";
+const formattedDate = "2026.01.15";
+const reportImagePath = ""; 
 ---
 
 <Layout title="NBA CARDS">
