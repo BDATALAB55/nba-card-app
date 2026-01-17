@@ -1,0 +1,186 @@
+---
+import Layout from '../layouts/Layout.astro';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const reportsBaseDir = path.resolve('./public/output/reports/NBA');
+let reportGroups = [];
+
+try {
+  const dateFolders = fs.readdirSync(reportsBaseDir).filter(f => !f.startsWith('.')).sort().reverse();
+
+  reportGroups = dateFolders.map(folder => {
+    const folderPath = path.join(reportsBaseDir, folder);
+    const files = fs.readdirSync(folderPath).filter(file => file.endsWith('.png')).sort();
+    
+    return {
+      id: folder,
+      date: `20${folder.substring(0,2)}.${folder.substring(2,4)}.${folder.substring(4,6)}`,
+      reports: files.map(file => {
+        const parts = file.replace('.png', '').split('_');
+        const teamA = parts[parts.length - 2] || "AWAY";
+        const teamB = parts[parts.length - 1] || "HOME";
+        const gameId = parts[parts.length - 3] || ""; 
+        const fullDate = parts[1] || "";
+        const folderPathInURL = `${folder}/NBA_Cards_${gameId}_${fullDate}`;
+
+        return {
+          path: `/output/reports/NBA/${folder}/${file}`,
+          away: teamA,
+          home: teamB,
+          link: `/?folder=${folderPathInURL}`
+        };
+      })
+    };
+  });
+} catch (e) {
+  reportGroups = [];
+}
+
+// クライアント側に渡すデータ
+const allData = reportGroups;
+const availableDates = reportGroups.map(g => g.id);
+---
+
+<Layout title="GAME REPORT | Archive">
+  <div class="bg-[#373A36] min-h-screen text-white font-avenir overflow-x-hidden">
+    
+    <header class="pt-12 pb-6 px-8 text-center border-b border-white/5">
+      <h1 class="text-2xl font-black uppercase leading-none tracking-[0.25em]">GAME REPORT</h1>
+      <p class="text-gray-400 text-[10px] font-bold tracking-[0.4em] mt-3 uppercase">Game Archive</p>
+    </header>
+
+    <section class="py-10">
+      <div class="px-8 mb-4">
+        <div class="flex flex-col gap-1">
+          <span id="display-label" class="text-blue-500 text-[10px] font-black uppercase tracking-[0.3em]">Latest Update</span>
+          <span id="display-date" class="text-white text-[32px] font-bold uppercase leading-none tracking-[0.05em] text-shadow-xl">
+            {reportGroups[0]?.date || "LOADING..."}
+          </span>
+        </div>
+      </div>
+
+      <div class="px-8 mb-4 flex items-center gap-3">
+        <span class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Match Results</span>
+        <div class="h-[1px] flex-1 bg-white/10"></div>
+      </div>
+
+      <div id="report-slider" class="flex overflow-x-auto snap-x snap-mandatory gap-4 px-8 no-scrollbar">
+        {reportGroups[0]?.reports.map((report) => (
+          <div class="flex-none w-[85vw] max-w-[400px] snap-center">
+            <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
+              <img src={report.path} alt="Report" class="w-full h-auto block" />
+            </div>
+            <div class="mt-6 text-center">
+              <a href={report.link} class="inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden">
+                <div class="absolute inset-0 p-[2px] rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 -z-10"></div>
+                <span class="text-[14px] font-black tracking-[0.2em] uppercase text-white">
+                  {report.away} <span class="text-[10px] font-medium lowercase tracking-normal mx-1 text-white/50 italic px-1">vs</span> {report.home}
+                </span>
+              </a>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <section class="px-8 pb-40">
+      <div class="max-w-md mx-auto">
+        <div class="mb-6 flex items-center gap-4">
+          <span class="h-[1px] flex-1 bg-white/10"></span>
+          <h3 class="text-[11px] font-black text-gray-500 uppercase tracking-[0.3em]">Select Date</h3>
+          <span class="h-[1px] flex-1 bg-white/10"></span>
+        </div>
+        <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner"></div>
+      </div>
+    </section>
+
+    <div class="fixed bottom-8 left-0 right-0 flex justify-center z-50">
+       <a href="/" class="bg-white text-black px-10 py-4 rounded-full font-black text-[11px] uppercase tracking-widest shadow-2xl active:scale-95 transition-transform">
+        Back to Cards
+       </a>
+    </div>
+  </div>
+</Layout>
+
+<script is:inline define:vars={{ allData, availableDates }}>
+  // グローバル関数として定義して、HTMLから呼び出せるようにする
+  let currentY = 2026;
+  let currentM = 0; // 1月
+
+  window.updateReports = function(dateId) {
+    const sliderEl = document.getElementById('report-slider');
+    const dateTitleEl = document.getElementById('display-date');
+    const labelEl = document.getElementById('display-label');
+    const data = allData.find(g => g.id === dateId);
+    if (!data || !sliderEl) return;
+
+    dateTitleEl.innerText = data.date;
+    const isLatest = (dateId === allData[0].id);
+    labelEl.innerText = isLatest ? "Latest Update" : "Archive Data";
+    labelEl.className = `text-[10px] font-black uppercase tracking-[0.3em] ${isLatest ? 'text-blue-500' : 'text-gray-500'}`;
+
+    sliderEl.innerHTML = data.reports.map(report => `
+      <div class="flex-none w-[85vw] max-w-[400px] snap-center">
+        <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
+          <img src="${report.path}" class="w-full h-auto block" />
+        </div>
+        <div class="mt-6 text-center">
+          <a href="${report.link}" class="inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden">
+            <div class="absolute inset-0 p-[2px] rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 -z-10"></div>
+            <span class="text-[14px] font-black tracking-[0.2em] uppercase text-white">
+              ${report.away} <span class="text-[10px] font-medium lowercase tracking-normal mx-1 text-white/50 italic px-1">vs</span> ${report.home}
+            </span>
+          </a>
+        </div>
+      </div>
+    `).join('');
+    sliderEl.scrollTo({ left: 0, behavior: 'smooth' });
+  };
+
+  window.changeMonth = function(delta) {
+    currentM += delta;
+    if (currentM < 0) { currentM = 11; currentY--; }
+    else if (currentM > 11) { currentM = 0; currentY++; }
+    renderCalendar(currentY, currentM);
+  };
+
+  function renderCalendar(y, m) {
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) return;
+    const firstDay = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+    
+    let html = `<div class="flex justify-between items-center mb-6 px-2 text-center">
+      <button onclick="changeMonth(-1)" class="p-2 text-gray-400">←</button>
+      <div class="font-black text-sm tracking-[0.2em]">${monthNames[m]} ${y}</div>
+      <button onclick="changeMonth(1)" class="p-2 text-gray-400">→</button>
+    </div>
+    <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4">
+      <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+    </div>
+    <div class="grid grid-cols-7 gap-y-3 gap-x-1">`;
+
+    for (let i = 0; i < firstDay; i++) html += `<div></div>`;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${String(y).substring(2)}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+      const hasReport = availableDates.includes(dateStr);
+      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110" : "text-gray-700";
+      html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${activeClass}" 
+        ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
+    }
+    calendarEl.innerHTML = html + `</div>`;
+  }
+
+  // 初回起動
+  renderCalendar(currentY, currentM);
+</script>
+
+<style is:global>
+  :root { font-family: "Avenir Next", sans-serif; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .text-shadow-xl { text-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+</style>
