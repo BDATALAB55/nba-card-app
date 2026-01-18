@@ -3,33 +3,37 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 
 const GITHUB_REPO = "BDATALAB55/nba-card-data";
-// 1. NBAフォルダそのものを再帰的に取得（1回のfetchで全階層のファイル名を取る）
+// リポジトリのルートにある reports/NBA を見に行く
 const RECURSIVE_API = `https://api.github.com/repos/${GITHUB_REPO}/git/trees/main?recursive=1`;
-const IMAGE_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/public/output/reports/NBA`;
+const IMAGE_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/reports/NBA`;
+
+const token = process.env.GITHUB_TOKEN;
 
 let reportGroups = [];
 
 try {
-  // キャッシュを回避しつつ、全ファイルリストを1回で取得
-  const res = await fetch(`${RECURSIVE_API}&t=${Date.now()}`);
+  const res = await fetch(`${RECURSIVE_API}&t=${Date.now()}`, {
+    headers: token ? { "Authorization": `token ${token}` } : {}
+  });
   const data = await res.json();
 
   if (data.tree) {
-    // public/output/reports/NBA 内の png ファイルだけを抽出
+    // パスを GitHub の実構造に合わせて修正
+    // 実構造: reports/NBA/260107/NBA_...png
     const allFiles = data.tree.filter(item => 
-      item.path.startsWith('public/output/reports/NBA/') && 
+      item.path.startsWith('reports/NBA/') && 
       item.path.endsWith('.png')
     );
 
     const groups = {};
 
     allFiles.forEach(file => {
-      // path 例: public/output/reports/NBA/260107/NBA_20260107_...png
       const pathParts = file.path.split('/');
-      const folderName = pathParts[4]; // 260107
-      const fileName = pathParts[5];   // NBA_20260107_...png
+      // [0]=reports, [1]=NBA, [2]=260107, [3]=ファイル名
+      const folderName = pathParts[2]; 
+      const fileName = pathParts[3];
 
-      if (!folderName || !fileName) return;
+      if (!folderName || !fileName || !/^\d+$/.test(folderName)) return;
 
       const nameParts = fileName.replace('.png', '').split('_');
       const fullDate = nameParts[1] || ""; 
@@ -49,11 +53,11 @@ try {
         path: `${IMAGE_BASE_URL}/${folderName}/${fileName}`,
         away: teamA,
         home: teamB,
+        // カードへのリンクも GitHub 構造に合わせる (players/260107/...)
         link: `/?folder=${folderName}/NBA_Cards_${gameId}_${fullDate}`
       });
     });
 
-    // 日付の降順に並び替え
     reportGroups = Object.values(groups).sort((a, b) => b.id.localeCompare(a.id));
   }
 } catch (e) {
@@ -64,12 +68,11 @@ const allData = reportGroups;
 const availableDates = reportGroups.map(g => g.id);
 ---
 
-<Layout title="GAME REPORT | Archive">
+<Layout title="GAME REPORT">
   <div class="bg-[#373A36] min-h-screen text-white font-avenir overflow-x-hidden">
     
     <header class="pt-12 pb-6 px-8 text-center border-b border-white/5">
       <h1 class="text-2xl font-black uppercase leading-none tracking-[0.25em]">GAME REPORT</h1>
-      <p class="text-gray-400 text-[10px] font-bold tracking-[0.4em] mt-3 uppercase">Game Archive</p>
     </header>
 
     <section class="py-10">
@@ -101,19 +104,14 @@ const availableDates = reportGroups.map(g => g.id);
           ))
         ) : (
           <div class="w-full flex items-center justify-center py-20 text-gray-500 font-black text-[10px] tracking-[0.3em]">
-            NO REPORTS FOUND IN DATABASE
+            NO DATA FOUND AT /reports/NBA
           </div>
         )}
       </div>
     </section>
 
     <section class="px-8 pb-40">
-      <div class="max-w-md mx-auto text-center">
-        <div class="mb-6 flex items-center gap-4">
-          <span class="h-[1px] flex-1 bg-white/10"></span>
-          <h3 class="text-[11px] font-black text-gray-500 uppercase tracking-[0.3em]">Select Date</h3>
-          <span class="h-[1px] flex-1 bg-white/10"></span>
-        </div>
+      <div class="max-w-md mx-auto">
         <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner"></div>
       </div>
     </section>
@@ -127,7 +125,7 @@ const availableDates = reportGroups.map(g => g.id);
 </Layout>
 
 <script is:inline define:vars={{ allData, availableDates }}>
-  // カレンダー表示設定
+  // カレンダー・表示切り替えロジック
   let currentY = 2026;
   let currentM = 0; 
 
@@ -181,28 +179,15 @@ const availableDates = reportGroups.map(g => g.id);
     const daysInMonth = new Date(y, m + 1, 0).getDate();
     const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
     
-    let html = `<div class="flex justify-between items-center mb-6 px-2 text-center text-white">
-      <button onclick="changeMonth(-1)" class="p-2 w-10 h-10 flex items-center justify-center">←</button>
-      <div class="font-black text-sm tracking-[0.2em]">${monthNames[m]} ${y}</div>
-      <button onclick="changeMonth(1)" class="p-2 w-10 h-10 flex items-center justify-center">→</button>
-    </div>
-    <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4 uppercase">
-      <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-    </div>
-    <div class="grid grid-cols-7 gap-y-3 gap-x-1">`;
-
+    let html = `<div class="flex justify-between items-center mb-6 px-2 text-white"><button onclick="changeMonth(-1)">←</button><div class="font-black text-sm tracking-widest">${monthNames[m]} ${y}</div><button onclick="changeMonth(1)">→</button></div><div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4 uppercase"><div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div></div><div class="grid grid-cols-7 gap-y-3">`;
     for (let i = 0; i < firstDay; i++) html += `<div></div>`;
-
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${String(y).substring(2)}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
       const hasReport = availableDates.includes(dateStr);
-      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110" : "text-gray-700";
-      html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${activeClass}" 
-        ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
+      html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg" : "text-gray-700"}" ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
     }
     calendarEl.innerHTML = html + `</div>`;
   }
-
   renderCalendar(currentY, currentM);
 </script>
 
@@ -210,5 +195,4 @@ const availableDates = reportGroups.map(g => g.id);
   :root { font-family: "Avenir Next", sans-serif; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-  .text-shadow-xl { text-shadow: 0 10px 20px rgba(0,0,0,0.5); }
 </style>
