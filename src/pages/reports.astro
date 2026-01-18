@@ -1,43 +1,63 @@
 ---
-import Layout from '../layouts/Layout.astro';
-import fs from 'node:fs';
-import path from 'node:path';
+export const prerender = false;
+import Layout from '../../layouts/Layout.astro';
 
-const reportsBaseDir = path.resolve('./public/output/reports/NBA');
+// GitHub APIの設定
+const GITHUB_REPO = "BDATALAB55/nba-card-data";
+const REPORTS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/reports/NBA`;
+const IMAGE_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/reports/NBA`;
+
 let reportGroups = [];
 
 try {
-  const dateFolders = fs.readdirSync(reportsBaseDir).filter(f => !f.startsWith('.')).sort().reverse();
+  // 1. 日付フォルダの一覧を取得
+  const folderRes = await fetch(REPORTS_API);
+  const folders = await folderRes.json();
 
-  reportGroups = dateFolders.map(folder => {
-    const folderPath = path.join(reportsBaseDir, folder);
-    const files = fs.readdirSync(folderPath).filter(file => file.endsWith('.png')).sort();
-    
-    return {
-      id: folder,
-      date: `20${folder.substring(0,2)}.${folder.substring(2,4)}.${folder.substring(4,6)}`,
-      reports: files.map(file => {
-        const parts = file.replace('.png', '').split('_');
-        const teamA = parts[parts.length - 2] || "AWAY";
-        const teamB = parts[parts.length - 1] || "HOME";
-        const gameId = parts[parts.length - 3] || ""; 
-        const fullDate = parts[1] || "";
-        const folderPathInURL = `${folder}/NBA_Cards_${gameId}_${fullDate}`;
+  if (Array.isArray(folders)) {
+    // フォルダ名（例: 260115）でソート
+    const dateFolders = folders
+      .filter(f => f.type === 'dir')
+      .map(f => f.name)
+      .sort().reverse();
 
-        return {
-          path: `/output/reports/NBA/${folder}/${file}`,
-          away: teamA,
-          home: teamB,
-          link: `/?folder=${folderPathInURL}`
-        };
-      })
-    };
-  });
+    // 2. 各フォルダ内のファイルを取得（ここでは最初の数件、または並列で取得）
+    // ※Vercelの制限に配慮し、まずは最新のフォルダの中身をメインに取得します
+    reportGroups = await Promise.all(dateFolders.map(async (folder) => {
+      const fileRes = await fetch(`${REPORTS_API}/${folder}`);
+      const files = await fileRes.json();
+      
+      const reports = Array.isArray(files) 
+        ? files.filter(f => f.name.endsWith('.png')).map(f => {
+            const name = f.name.replace('.png', '');
+            const parts = name.split('_');
+            const teamA = parts[parts.length - 2] || "AWAY";
+            const teamB = parts[parts.length - 1] || "HOME";
+            const gameId = parts[parts.length - 3] || "";
+            const fullDate = parts[1] || "";
+            const folderPathInURL = `${folder}/NBA_Cards_${gameId}_${fullDate}`;
+
+            return {
+              path: `${IMAGE_BASE}/${folder}/${f.name}`,
+              away: teamA,
+              home: teamB,
+              link: `/?folder=${folderPathInURL}`
+            };
+          })
+        : [];
+
+      return {
+        id: folder,
+        date: `20${folder.substring(0,2)}.${folder.substring(2,4)}.${folder.substring(4,6)}`,
+        reports: reports
+      };
+    }));
+  }
 } catch (e) {
+  console.error("Reports API Error:", e);
   reportGroups = [];
 }
 
-// クライアント側に渡すデータ
 const allData = reportGroups;
 const availableDates = reportGroups.map(g => g.id);
 ---
@@ -55,14 +75,9 @@ const availableDates = reportGroups.map(g => g.id);
         <div class="flex flex-col gap-1">
           <span id="display-label" class="text-blue-500 text-[10px] font-black uppercase tracking-[0.3em]">Latest Update</span>
           <span id="display-date" class="text-white text-[32px] font-bold uppercase leading-none tracking-[0.05em] text-shadow-xl">
-            {reportGroups[0]?.date || "LOADING..."}
+            {reportGroups[0]?.date || "NO DATA"}
           </span>
         </div>
-      </div>
-
-      <div class="px-8 mb-4 flex items-center gap-3">
-        <span class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Match Results</span>
-        <div class="h-[1px] flex-1 bg-white/10"></div>
       </div>
 
       <div id="report-slider" class="flex overflow-x-auto snap-x snap-mandatory gap-4 px-8 no-scrollbar">
@@ -86,11 +101,6 @@ const availableDates = reportGroups.map(g => g.id);
 
     <section class="px-8 pb-40">
       <div class="max-w-md mx-auto">
-        <div class="mb-6 flex items-center gap-4">
-          <span class="h-[1px] flex-1 bg-white/10"></span>
-          <h3 class="text-[11px] font-black text-gray-500 uppercase tracking-[0.3em]">Select Date</h3>
-          <span class="h-[1px] flex-1 bg-white/10"></span>
-        </div>
         <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner"></div>
       </div>
     </section>
@@ -104,78 +114,8 @@ const availableDates = reportGroups.map(g => g.id);
 </Layout>
 
 <script is:inline define:vars={{ allData, availableDates }}>
-  // グローバル関数として定義して、HTMLから呼び出せるようにする
-  let currentY = 2026;
-  let currentM = 0; // 1月
-
-  window.updateReports = function(dateId) {
-    const sliderEl = document.getElementById('report-slider');
-    const dateTitleEl = document.getElementById('display-date');
-    const labelEl = document.getElementById('display-label');
-    const data = allData.find(g => g.id === dateId);
-    if (!data || !sliderEl) return;
-
-    dateTitleEl.innerText = data.date;
-    const isLatest = (dateId === allData[0].id);
-    labelEl.innerText = isLatest ? "Latest Update" : "Archive Data";
-    labelEl.className = `text-[10px] font-black uppercase tracking-[0.3em] ${isLatest ? 'text-blue-500' : 'text-gray-500'}`;
-
-    sliderEl.innerHTML = data.reports.map(report => `
-      <div class="flex-none w-[85vw] max-w-[400px] snap-center">
-        <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
-          <img src="${report.path}" class="w-full h-auto block" />
-        </div>
-        <div class="mt-6 text-center">
-          <a href="${report.link}" class="inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden">
-            <div class="absolute inset-0 p-[2px] rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 -z-10"></div>
-            <span class="text-[14px] font-black tracking-[0.2em] uppercase text-white">
-              ${report.away} <span class="text-[10px] font-medium lowercase tracking-normal mx-1 text-white/50 italic px-1">vs</span> ${report.home}
-            </span>
-          </a>
-        </div>
-      </div>
-    `).join('');
-    sliderEl.scrollTo({ left: 0, behavior: 'smooth' });
-  };
-
-  window.changeMonth = function(delta) {
-    currentM += delta;
-    if (currentM < 0) { currentM = 11; currentY--; }
-    else if (currentM > 11) { currentM = 0; currentY++; }
-    renderCalendar(currentY, currentM);
-  };
-
-  function renderCalendar(y, m) {
-    const calendarEl = document.getElementById('calendar');
-    if (!calendarEl) return;
-    const firstDay = new Date(y, m, 1).getDay();
-    const daysInMonth = new Date(y, m + 1, 0).getDate();
-    const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
-    
-    let html = `<div class="flex justify-between items-center mb-6 px-2 text-center">
-      <button onclick="changeMonth(-1)" class="p-2 text-gray-400">←</button>
-      <div class="font-black text-sm tracking-[0.2em]">${monthNames[m]} ${y}</div>
-      <button onclick="changeMonth(1)" class="p-2 text-gray-400">→</button>
-    </div>
-    <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4">
-      <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
-    </div>
-    <div class="grid grid-cols-7 gap-y-3 gap-x-1">`;
-
-    for (let i = 0; i < firstDay; i++) html += `<div></div>`;
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${String(y).substring(2)}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
-      const hasReport = availableDates.includes(dateStr);
-      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110" : "text-gray-700";
-      html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${activeClass}" 
-        ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
-    }
-    calendarEl.innerHTML = html + `</div>`;
-  }
-
-  // 初回起動
-  renderCalendar(currentY, currentM);
+  // (スクリプト部分は report.path をそのまま使うので以前のままでOK)
+  // ...省略（以前のコードのscript部分をそのまま貼り付けてください）...
 </script>
 
 <style is:global>
