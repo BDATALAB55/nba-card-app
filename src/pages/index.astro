@@ -6,28 +6,38 @@ import Layout from '../layouts/Layout.astro';
 const { searchParams } = Astro.url;
 const queryFolder = searchParams.get('folder');
 
-// 2. レポートからの指定があればそれを使い、なければデフォルトを表示する
-// デフォルト値は最新のものにしておくと良いです
+// 2. 表示するフォルダ名の決定 (デフォルトは最新の試合に設定)
 const folderName = queryFolder || "260116/NBA_Cards_0022500587_20260116";
 
-// GitHub APIを使って画像リストを取得
-const apiURL = `https://api.github.com/repos/BDATALAB55/nba-card-data/contents/players/${folderName}`;
-const githubBase = "https://raw.githubusercontent.com/BDATALAB55/nba-card-data/main/players";
+// GitHub API 設定
+const GITHUB_REPO = "BDATALAB55/nba-card-data";
+const token = process.env.GITHUB_TOKEN;
+
+// 選手データ取得用
+const apiURL = `https://api.github.com/repos/${GITHUB_REPO}/contents/players/${folderName}`;
+const githubBase = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/players`;
 
 let awayData = [];
 let homeData = [];
 let teamHome = "HOME";
 let teamAway = "AWAY";
+let reportImagePath = "";
+
+// フォルダ名から日付を抽出 (例: 260115 -> 2026.01.15)
+const rawDate = folderName.split('/')[0];
+const formattedDate = `20${rawDate.substring(0,2)}.${rawDate.substring(2,4)}.${rawDate.substring(4,6)}`;
 
 try {
-  const response = await fetch(apiURL);
+  // --- 選手データの取得 ---
+  const response = await fetch(apiURL, {
+    headers: token ? { "Authorization": `token ${token}` } : {}
+  });
   const files = await response.json();
 
   if (Array.isArray(files)) {
     const playerFiles = files.filter(f => f.name.endsWith('.png')).map(f => f.name);
     const detectedTeams = [...new Set(playerFiles.map(f => f.split('_')[0]))].filter(t => t && t !== 'NBA');
     
-    // チームの判定を少し柔軟に（チーム名が取得できなかった時のエラー回避）
     teamAway = detectedTeams[1] || "AWAY";
     teamHome = detectedTeams[0] || "HOME";
 
@@ -49,16 +59,32 @@ try {
     awayData = process(teamAway);
     homeData = process(teamHome);
   }
+
+  // --- トップ用レポート画像の取得 ---
+  // GameID（10桁の数字）を抜き出す
+  const gameIdMatch = folderName.match(/\d{10}/);
+  const gameId = gameIdMatch ? gameIdMatch[0] : "";
+
+  if (gameId) {
+    const reportsApiURL = `https://api.github.com/repos/${GITHUB_REPO}/contents/reports/NBA/${rawDate}`;
+    const reportsRawBase = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/reports/NBA/${rawDate}`;
+
+    const reportRes = await fetch(reportsApiURL, {
+      headers: token ? { "Authorization": `token ${token}` } : {}
+    });
+    const reportFiles = await reportRes.json();
+
+    if (Array.isArray(reportFiles)) {
+      // GameIDが含まれるPNGファイルを特定
+      const matchFile = reportFiles.find(f => f.name.includes(gameId) && f.name.endsWith('.png'));
+      if (matchFile) {
+        reportImagePath = `${reportsRawBase}/${matchFile.name}`;
+      }
+    }
+  }
 } catch (e) {
   console.error("Fetch Error:", e);
 }
-
-// フォルダ名から日付を抽出して表示形式を整える (例: 260115 -> 2026.01.15)
-const rawDate = folderName.split('/')[0];
-const formattedDate = `20${rawDate.substring(0,2)}.${rawDate.substring(2,4)}.${rawDate.substring(4,6)}`;
-
-// レポート画像もこのフォルダから自動取得する場合（必要であれば）
-const reportImagePath = ""; 
 ---
 
 <Layout title="NBA CARDS">
@@ -78,9 +104,13 @@ const reportImagePath = "";
       </div>
 
       <section class="px-8 flex flex-col items-center">
-        {reportImagePath && (
+        {reportImagePath ? (
           <div class="w-full md:w-[50%] mx-auto cursor-pointer card-trigger rounded-xl overflow-hidden border border-white/20 shadow-2xl" data-img={reportImagePath}>
-            <img src={reportImagePath} class="w-full h-auto block" />
+            <img src={reportImagePath} alt="Game Report" class="w-full h-auto block" />
+          </div>
+        ) : (
+          <div class="w-full py-10 text-center text-white/20 text-[10px] tracking-widest uppercase border border-dashed border-white/10 rounded-xl">
+            Report Image Not Found
           </div>
         )}
         <div class="mt-4 text-center">
@@ -101,24 +131,20 @@ const reportImagePath = "";
           <div class="flex overflow-x-auto snap-x snap-mandatory gap-6 px-8 no-scrollbar pb-4">
             {team.map((p) => (
               <div class="flex-none w-[78vw] max-w-[340px] snap-center">
-                {/* 選手カード画像 */}
                 <div class="cursor-pointer card-trigger rounded-2xl overflow-hidden border border-white/10 shadow-xl" data-img={p.imagePath}>
-                  <img src={p.imagePath} alt={p.name} class="w-full h-auto block" />
+                  <img src={p.imagePath} alt={p.name} class="w-full h-auto block" loading="lazy" />
                 </div>
                 
-                {/* 選手名ボタン（背番号を削除） */}
                 <div class="mt-6 flex flex-col items-center px-1">
-                    <a href={p.playerLink} class="w-full inline-flex items-center justify-between px-6 py-4 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden shadow-lg">
+                    <button class="w-full inline-flex items-center justify-between px-6 py-4 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden shadow-lg">
                       <div class="absolute inset-0 p-[1.5px] rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 -z-10 opacity-80"></div>
-                      
                       <div class="flex items-center">
                         <span class="text-[14px] font-black tracking-[0.15em] uppercase text-white">{p.name}</span>
                       </div>
-
                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="text-white/40 group-hover:text-white transition-colors" viewBox="0 0 16 16">
                         <path fill-rule="evenodd" d="M4.646 1.646a.5.5 0 0 1 .708 0l6 6a.5.5 0 0 1 0 .708l-6 6a.5.5 0 0 1-.708-.708L10.293 8 4.646 2.354a.5.5 0 0 1 0-.708z"/>
                       </svg>
-                    </a>
+                    </button>
                 </div>
               </div>
             ))}
@@ -127,7 +153,6 @@ const reportImagePath = "";
       ))}
     </div>
 
-    {/* モーダル */}
     <div id="modal" class="fixed inset-0 bg-black/98 z-50 hidden flex-col items-center justify-center p-6 backdrop-blur-md">
       <div class="absolute top-8 right-8 text-white/40 text-4xl font-light cursor-pointer p-4" id="close">&times;</div>
       <img id="modal-img" src="" class="max-w-full max-h-[85vh] shadow-2xl rounded-xl mb-12" />
