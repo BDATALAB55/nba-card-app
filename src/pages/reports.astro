@@ -3,44 +3,46 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 
 const GITHUB_REPO = "BDATALAB55/nba-card-data";
-// 1. NBAフォルダ内の日付フォルダ一覧を取得するAPI
 const NBA_REPORTS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/public/output/reports/NBA`;
 const IMAGE_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/public/output/reports/NBA`;
 
 let reportGroups = [];
 
 try {
-  // 日付フォルダの一覧（260107, 260108...）を取得
-  const folderRes = await fetch(NBA_REPORTS_API);
+  // APIに ?t=... を付けてキャッシュを強制回避
+  const folderRes = await fetch(`${NBA_REPORTS_API}?t=${Date.now()}`);
   const folders = await folderRes.json();
 
   if (Array.isArray(folders)) {
     const dateFolders = folders
-      .filter(f => f.type === 'dir')
+      .filter(f => f.type === 'dir' && /^\d+$/.test(f.name))
       .map(f => f.name)
-      .sort().reverse(); // 新しい順
+      .sort().reverse();
 
-    // 各日付フォルダの中の画像を取得
     reportGroups = await Promise.all(dateFolders.map(async (folderName) => {
-      const fileRes = await fetch(`${NBA_REPORTS_API}/${folderName}`);
+      // 各フォルダの中身もキャッシュ回避
+      const fileRes = await fetch(`${NBA_REPORTS_API}/${folderName}?t=${Date.now()}`);
       const files = await fileRes.json();
       
       const reports = Array.isArray(files) 
         ? files.filter(f => f.name.endsWith('.png')).map(f => {
             const name = f.name.replace('.png', '');
             const parts = name.split('_'); 
-            // 例: NBA_20260107_0022500516_CHA_TOR
-            const fullDate = parts[1] || ""; 
+            // ファイル名: NBA_20260107_0022500516_CHA_TOR.png
+            const fullDate = parts[1] || ""; // 20260107
             const gameId = parts[2] || "";
             const teamA = parts[parts.length - 2] || "AWAY";
             const teamB = parts[parts.length - 1] || "HOME";
+
+            // 重要：カードフォルダ名は `260116` のような形式
+            // folderName がそのまま `260107` なら、それに合わせる
+            const cardLinkPath = `${folderName}/NBA_Cards_${gameId}_${fullDate}`;
 
             return {
               path: `${IMAGE_BASE_URL}/${folderName}/${f.name}`,
               away: teamA,
               home: teamB,
-              // カード詳細へのリンク: players/260107/NBA_Cards_...
-              link: `/?folder=${folderName}/NBA_Cards_${gameId}_${fullDate}`
+              link: `/?folder=${cardLinkPath}`
             };
           })
         : [];
@@ -48,7 +50,7 @@ try {
       if (reports.length === 0) return null;
 
       return {
-        id: folderName, // 260107
+        id: folderName,
         date: `20${folderName.substring(0,2)}.${folderName.substring(2,4)}.${folderName.substring(4,6)}`,
         reports: reports
       };
@@ -73,21 +75,21 @@ const availableDates = reportGroups.map(g => g.id);
     </header>
 
     <section class="py-10">
-      <div class="px-8 mb-4">
+      <div class="px-8 mb-4 min-h-[80px]">
         <div class="flex flex-col gap-1">
           <span id="display-label" class="text-blue-500 text-[10px] font-black uppercase tracking-[0.3em]">Latest Update</span>
           <span id="display-date" class="text-white text-[32px] font-bold uppercase leading-none tracking-[0.05em] text-shadow-xl">
-            {reportGroups[0]?.date || "NO DATA"}
+            {reportGroups[0]?.date || "LOADING..."}
           </span>
         </div>
       </div>
 
-      <div id="report-slider" class="flex overflow-x-auto snap-x snap-mandatory gap-4 px-8 no-scrollbar">
+      <div id="report-slider" class="flex overflow-x-auto snap-x snap-mandatory gap-4 px-8 no-scrollbar min-h-[300px]">
         {reportGroups.length > 0 ? (
           reportGroups[0].reports.map((report) => (
             <div class="flex-none w-[85vw] max-w-[400px] snap-center">
               <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
-                <img src={report.path} alt="Report" class="w-full h-auto block" />
+                <img src={report.path} alt="Report" class="w-full h-auto block" loading="eager" />
               </div>
               <div class="mt-6 text-center">
                 <a href={report.link} class="inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden">
@@ -100,7 +102,10 @@ const availableDates = reportGroups.map(g => g.id);
             </div>
           ))
         ) : (
-          <div class="px-8 py-20 text-gray-500 font-bold uppercase tracking-widest text-sm text-center w-full">No Reports Available</div>
+          <div class="w-full flex flex-col items-center justify-center py-20 text-gray-500 gap-4">
+            <div class="animate-spin h-8 w-8 border-4 border-blue-500 border-t-transparent rounded-full"></div>
+            <p class="font-black text-[10px] tracking-[0.3em]">CONNECTING TO DATABASE...</p>
+          </div>
         )}
       </div>
     </section>
@@ -112,7 +117,7 @@ const availableDates = reportGroups.map(g => g.id);
           <h3 class="text-[11px] font-black text-gray-500 uppercase tracking-[0.3em]">Select Date</h3>
           <span class="h-[1px] flex-1 bg-white/10"></span>
         </div>
-        <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner"></div>
+        <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner min-h-[300px]"></div>
       </div>
     </section>
 
@@ -125,12 +130,13 @@ const availableDates = reportGroups.map(g => g.id);
 </Layout>
 
 <script is:inline define:vars={{ allData, availableDates }}>
-  // 初期月をデータの最新月に合わせる（なければ2026年1月）
+  // 最新のデータがある日付を初期表示にする
   let currentY = 2026;
   let currentM = 0; 
   if (availableDates.length > 0) {
-    currentY = parseInt("20" + availableDates[0].substring(0,2));
-    currentM = parseInt(availableDates[0].substring(2,4)) - 1;
+    const latest = availableDates[0];
+    currentY = 2000 + parseInt(latest.substring(0,2));
+    currentM = parseInt(latest.substring(2,4)) - 1;
   }
 
   window.updateReports = function(dateId) {
@@ -178,9 +184,9 @@ const availableDates = reportGroups.map(g => g.id);
     const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
     
     let html = `<div class="flex justify-between items-center mb-6 px-2 text-center text-white">
-      <button onclick="changeMonth(-1)" class="p-2">←</button>
+      <button onclick="changeMonth(-1)" class="p-2 w-10 h-10 flex items-center justify-center">←</button>
       <div class="font-black text-sm tracking-[0.2em]">${monthNames[m]} ${y}</div>
-      <button onclick="changeMonth(1)" class="p-2">→</button>
+      <button onclick="changeMonth(1)" class="p-2 w-10 h-10 flex items-center justify-center">→</button>
     </div>
     <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4 uppercase">
       <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
@@ -192,7 +198,7 @@ const availableDates = reportGroups.map(g => g.id);
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${String(y).substring(2)}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
       const hasReport = availableDates.includes(dateStr);
-      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110" : "text-gray-700";
+      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110 active:scale-90" : "text-gray-700";
       html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${activeClass}" 
         ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
     }
@@ -207,4 +213,6 @@ const availableDates = reportGroups.map(g => g.id);
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .text-shadow-xl { text-shadow: 0 10px 20px rgba(0,0,0,0.5); }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .animate-spin { animation: spin 1s linear infinite; }
 </style>
