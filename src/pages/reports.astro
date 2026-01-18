@@ -3,65 +3,57 @@ export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 
 const GITHUB_REPO = "BDATALAB55/nba-card-data";
-// 1. まずは players フォルダの日付一覧を取得
-const PLAYERS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/public/output/players`;
-const GITHUB_RAW_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/public/output/players`;
+// 1. NBAフォルダ内の日付フォルダ一覧を取得するAPI
+const NBA_REPORTS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/public/output/reports/NBA`;
+const IMAGE_BASE_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/public/output/reports/NBA`;
 
 let reportGroups = [];
 
 try {
-  const folderRes = await fetch(PLAYERS_API);
-  const dateFolders = await folderRes.json();
+  // 日付フォルダの一覧（260107, 260108...）を取得
+  const folderRes = await fetch(NBA_REPORTS_API);
+  const folders = await folderRes.json();
 
-  if (Array.isArray(dateFolders)) {
-    // 日付フォルダ（260116など）の一覧を取得して降順に
-    const sortedDates = dateFolders
-      .filter(f => f.type === 'dir' && /^\d+$/.test(f.name))
+  if (Array.isArray(folders)) {
+    const dateFolders = folders
+      .filter(f => f.type === 'dir')
       .map(f => f.name)
-      .sort().reverse();
+      .sort().reverse(); // 新しい順
 
-    // 各日付フォルダの中の reports/NBA を探しに行く
-    reportGroups = await Promise.all(sortedDates.map(async (dateStr) => {
-      const reportsApiUrl = `${PLAYERS_API}/${dateStr}/reports/NBA`;
+    // 各日付フォルダの中の画像を取得
+    reportGroups = await Promise.all(dateFolders.map(async (folderName) => {
+      const fileRes = await fetch(`${NBA_REPORTS_API}/${folderName}`);
+      const files = await fileRes.json();
       
-      try {
-        const fileRes = await fetch(reportsApiUrl);
-        const files = await fileRes.json();
-        
-        const reports = Array.isArray(files) 
-          ? files.filter(f => f.name.endsWith('.png')).map(f => {
-              const name = f.name.replace('.png', '');
-              const parts = name.split('_');
-              const teamA = parts[parts.length - 2] || "AWAY";
-              const teamB = parts[parts.length - 1] || "HOME";
-              const gameId = parts[parts.length - 3] || "";
-              const fullDate = parts[1] || "";
-              
-              // index.astroへのリンク用パス（players直下の日付フォルダ構造に合わせる）
-              const folderPathInURL = `${dateStr}/NBA_Cards_${gameId}_${fullDate}`;
+      const reports = Array.isArray(files) 
+        ? files.filter(f => f.name.endsWith('.png')).map(f => {
+            const name = f.name.replace('.png', '');
+            const parts = name.split('_'); 
+            // 例: NBA_20260107_0022500516_CHA_TOR
+            const fullDate = parts[1] || ""; 
+            const gameId = parts[2] || "";
+            const teamA = parts[parts.length - 2] || "AWAY";
+            const teamB = parts[parts.length - 1] || "HOME";
 
-              return {
-                path: `${GITHUB_RAW_BASE}/${dateStr}/reports/NBA/${f.name}`,
-                away: teamA,
-                home: teamB,
-                link: `/?folder=${folderPathInURL}`
-              };
-            })
-          : [];
+            return {
+              path: `${IMAGE_BASE_URL}/${folderName}/${f.name}`,
+              away: teamA,
+              home: teamB,
+              // カード詳細へのリンク: players/260107/NBA_Cards_...
+              link: `/?folder=${folderName}/NBA_Cards_${gameId}_${fullDate}`
+            };
+          })
+        : [];
 
-        if (reports.length === 0) return null;
+      if (reports.length === 0) return null;
 
-        return {
-          id: dateStr,
-          date: `20${dateStr.substring(0,2)}.${dateStr.substring(2,4)}.${dateStr.substring(4,6)}`,
-          reports: reports
-        };
-      } catch (e) {
-        return null;
-      }
+      return {
+        id: folderName, // 260107
+        date: `20${folderName.substring(0,2)}.${folderName.substring(2,4)}.${folderName.substring(4,6)}`,
+        reports: reports
+      };
     }));
 
-    // データがない日を除外
     reportGroups = reportGroups.filter(g => g !== null);
   }
 } catch (e) {
@@ -108,7 +100,7 @@ const availableDates = reportGroups.map(g => g.id);
             </div>
           ))
         ) : (
-          <div class="px-8 py-20 text-gray-500 font-bold uppercase tracking-widest text-sm">No Reports Available</div>
+          <div class="px-8 py-20 text-gray-500 font-bold uppercase tracking-widest text-sm text-center w-full">No Reports Available</div>
         )}
       </div>
     </section>
@@ -133,8 +125,13 @@ const availableDates = reportGroups.map(g => g.id);
 </Layout>
 
 <script is:inline define:vars={{ allData, availableDates }}>
+  // 初期月をデータの最新月に合わせる（なければ2026年1月）
   let currentY = 2026;
-  let currentM = 0;
+  let currentM = 0; 
+  if (availableDates.length > 0) {
+    currentY = parseInt("20" + availableDates[0].substring(0,2));
+    currentM = parseInt(availableDates[0].substring(2,4)) - 1;
+  }
 
   window.updateReports = function(dateId) {
     const sliderEl = document.getElementById('report-slider');
