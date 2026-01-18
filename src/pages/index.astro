@@ -2,8 +2,13 @@
 export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 
-// 表示したいフォルダ名
-const folderName = "260115/NBA_Cards_0022500578_20260115";
+// 1. URLから ?folder= の値を取得する
+const { searchParams } = Astro.url;
+const queryFolder = searchParams.get('folder');
+
+// 2. レポートからの指定があればそれを使い、なければデフォルトを表示する
+// デフォルト値は最新のものにしておくと良いです
+const folderName = queryFolder || "260116/NBA_Cards_0022500587_20260116";
 
 // GitHub APIを使って画像リストを取得
 const apiURL = `https://api.github.com/repos/BDATALAB55/nba-card-data/contents/players/${folderName}`;
@@ -22,8 +27,9 @@ try {
     const playerFiles = files.filter(f => f.name.endsWith('.png')).map(f => f.name);
     const detectedTeams = [...new Set(playerFiles.map(f => f.split('_')[0]))].filter(t => t && t !== 'NBA');
     
-    teamAway = detectedTeams[1] || "";
-    teamHome = detectedTeams[0] || "";
+    // チームの判定を少し柔軟に（チーム名が取得できなかった時のエラー回避）
+    teamAway = detectedTeams[1] || "AWAY";
+    teamHome = detectedTeams[0] || "HOME";
 
     const process = (teamName) => {
       return playerFiles
@@ -47,7 +53,11 @@ try {
   console.error("Fetch Error:", e);
 }
 
-const formattedDate = "2026.01.15";
+// フォルダ名から日付を抽出して表示形式を整える (例: 260115 -> 2026.01.15)
+const rawDate = folderName.split('/')[0];
+const formattedDate = `20${rawDate.substring(0,2)}.${rawDate.substring(2,4)}.${rawDate.substring(4,6)}`;
+
+// レポート画像もこのフォルダから自動取得する場合（必要であれば）
 const reportImagePath = ""; 
 ---
 
