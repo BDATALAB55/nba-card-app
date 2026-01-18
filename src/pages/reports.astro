@@ -15,14 +15,12 @@ try {
   const folders = await folderRes.json();
 
   if (Array.isArray(folders)) {
-    // フォルダ名（例: 260115）でソート
     const dateFolders = folders
       .filter(f => f.type === 'dir')
       .map(f => f.name)
       .sort().reverse();
 
-    // 2. 各フォルダ内のファイルを取得（ここでは最初の数件、または並列で取得）
-    // ※Vercelの制限に配慮し、まずは最新のフォルダの中身をメインに取得します
+    // 2. 各フォルダ内の画像ファイルを取得
     reportGroups = await Promise.all(dateFolders.map(async (folder) => {
       const fileRes = await fetch(`${REPORTS_API}/${folder}`);
       const files = await fileRes.json();
