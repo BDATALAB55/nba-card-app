@@ -2,26 +2,51 @@
 export const prerender = false;
 import Layout from '../layouts/Layout.astro';
 
-// 1. 表示したい特定のフォルダ名（GitHub上のパス）を指定
+// 表示したいフォルダ名
 const folderName = "260115/NBA_Cards_0022500578_20260115";
 
-// 2. 画像のベースURL（先ほど成功したnba-card-dataリポジトリを指す）
+// GitHub APIを使って画像リストを取得
+const apiURL = `https://api.github.com/repos/BDATALAB55/nba-card-data/contents/players/${folderName}`;
 const githubBase = "https://raw.githubusercontent.com/BDATALAB55/nba-card-data/main/players";
 
-// 3. 一旦テストとして、手動で選手データを定義（後で自動化できます）
-// ※fs.readdirSyncが使えないため、まずは表示を確認します
-const homeData = [
-  {
-    name: "Player Name",
-    team: "TEAM",
-    no: "0",
-    imagePath: `${githubBase}/${folderName}/YOUR_IMAGE_NAME.png`, // ここに実際のファイル名を1つ入れる
-    playerLink: "#"
+let awayData = [];
+let homeData = [];
+let teamHome = "HOME";
+let teamAway = "AWAY";
+
+try {
+  const response = await fetch(apiURL);
+  const files = await response.json();
+
+  if (Array.isArray(files)) {
+    const playerFiles = files.filter(f => f.name.endsWith('.png')).map(f => f.name);
+    const detectedTeams = [...new Set(playerFiles.map(f => f.split('_')[0]))].filter(t => t && t !== 'NBA');
+    
+    teamAway = detectedTeams[1] || "";
+    teamHome = detectedTeams[0] || "";
+
+    const process = (teamName) => {
+      return playerFiles
+        .filter(f => f.startsWith(teamName))
+        .map(f => {
+          const p = f.replace('.png', '').split('_');
+          return {
+            team: p[0],
+            no: p[1],
+            name: p.slice(2).join(' '),
+            imagePath: `${githubBase}/${folderName}/${f}`,
+            playerLink: "#"
+          };
+        }).sort((a, b) => parseInt(a.no) - parseInt(b.no));
+    };
+
+    awayData = process(teamAway);
+    homeData = process(teamHome);
   }
-];
-const awayData = [];
-const teamHome = "HOME";
-const teamAway = "AWAY";
+} catch (e) {
+  console.error("Fetch Error:", e);
+}
+
 const formattedDate = "2026.01.15";
 const reportImagePath = ""; 
 ---
