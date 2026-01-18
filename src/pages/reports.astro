@@ -1,26 +1,25 @@
 ---
 export const prerender = false;
-import Layout from '../../layouts/Layout.astro';
+import Layout from '../layouts/Layout.astro'; // 階層が一つ上がったので修正
 
-// GitHub APIの設定
+// GitHub APIの設定（画像がある場所：public/output/reports/NBA）
 const GITHUB_REPO = "BDATALAB55/nba-card-data";
-const REPORTS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/reports/NBA`;
-const IMAGE_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/reports/NBA`;
+const REPORTS_API = `https://api.github.com/repos/${GITHUB_REPO}/contents/public/output/reports/NBA`;
+const IMAGE_BASE = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/public/output/reports/NBA`;
 
 let reportGroups = [];
 
 try {
-  // 1. 日付フォルダの一覧を取得
   const folderRes = await fetch(REPORTS_API);
   const folders = await folderRes.json();
 
   if (Array.isArray(folders)) {
+    // 260115 などの日付フォルダを取得
     const dateFolders = folders
       .filter(f => f.type === 'dir')
       .map(f => f.name)
       .sort().reverse();
 
-    // 2. 各フォルダ内の画像ファイルを取得
     reportGroups = await Promise.all(dateFolders.map(async (folder) => {
       const fileRes = await fetch(`${REPORTS_API}/${folder}`);
       const files = await fileRes.json();
@@ -33,6 +32,9 @@ try {
             const teamB = parts[parts.length - 1] || "HOME";
             const gameId = parts[parts.length - 3] || "";
             const fullDate = parts[1] || "";
+            
+            // index.astroへのリンク（folderパラメータを渡す）
+            // 例: 260116/NBA_Cards_0022500587_20260116
             const folderPathInURL = `${folder}/NBA_Cards_${gameId}_${fullDate}`;
 
             return {
@@ -46,6 +48,7 @@ try {
 
       return {
         id: folder,
+        // 260115 -> 2026.01.15 に変換
         date: `20${folder.substring(0,2)}.${folder.substring(2,4)}.${folder.substring(4,6)}`,
         reports: reports
       };
@@ -79,7 +82,7 @@ const availableDates = reportGroups.map(g => g.id);
       </div>
 
       <div id="report-slider" class="flex overflow-x-auto snap-x snap-mandatory gap-4 px-8 no-scrollbar">
-        {reportGroups[0]?.reports.map((report) => (
+        {reportGroups.length > 0 && reportGroups[0].reports.map((report) => (
           <div class="flex-none w-[85vw] max-w-[400px] snap-center">
             <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
               <img src={report.path} alt="Report" class="w-full h-auto block" />
@@ -98,7 +101,12 @@ const availableDates = reportGroups.map(g => g.id);
     </section>
 
     <section class="px-8 pb-40">
-      <div class="max-w-md mx-auto">
+      <div class="max-w-md mx-auto text-center">
+        <div class="mb-6 flex items-center gap-4">
+          <span class="h-[1px] flex-1 bg-white/10"></span>
+          <h3 class="text-[11px] font-black text-gray-500 uppercase tracking-[0.3em]">Select Date</h3>
+          <span class="h-[1px] flex-1 bg-white/10"></span>
+        </div>
         <div id="calendar" class="bg-gray-900/40 p-6 rounded-3xl border border-white/5 shadow-inner"></div>
       </div>
     </section>
@@ -112,8 +120,76 @@ const availableDates = reportGroups.map(g => g.id);
 </Layout>
 
 <script is:inline define:vars={{ allData, availableDates }}>
-  // (スクリプト部分は report.path をそのまま使うので以前のままでOK)
-  // ...省略（以前のコードのscript部分をそのまま貼り付けてください）...
+  let currentY = 2026;
+  let currentM = 0; // 1月
+
+  window.updateReports = function(dateId) {
+    const sliderEl = document.getElementById('report-slider');
+    const dateTitleEl = document.getElementById('display-date');
+    const labelEl = document.getElementById('display-label');
+    const data = allData.find(g => g.id === dateId);
+    if (!data || !sliderEl) return;
+
+    dateTitleEl.innerText = data.date;
+    const isLatest = (allData.length > 0 && dateId === allData[0].id);
+    labelEl.innerText = isLatest ? "Latest Update" : "Archive Data";
+    labelEl.className = `text-[10px] font-black uppercase tracking-[0.3em] ${isLatest ? 'text-blue-500' : 'text-gray-500'}`;
+
+    sliderEl.innerHTML = data.reports.map(report => `
+      <div class="flex-none w-[85vw] max-w-[400px] snap-center">
+        <div class="rounded-2xl overflow-hidden border border-white/10 bg-gray-900 shadow-2xl">
+          <img src="${report.path}" class="w-full h-auto block" />
+        </div>
+        <div class="mt-6 text-center">
+          <a href="${report.link}" class="inline-flex items-center gap-3 px-6 py-2.5 rounded-full bg-black/40 border-2 border-transparent bg-clip-padding relative active:scale-95 transition-all group overflow-hidden">
+            <div class="absolute inset-0 p-[2px] rounded-full bg-gradient-to-r from-blue-500 via-purple-500 to-red-500 -z-10"></div>
+            <span class="text-[14px] font-black tracking-[0.2em] uppercase text-white">
+              ${report.away} <span class="text-[10px] font-medium lowercase tracking-normal mx-1 text-white/50 italic px-1">vs</span> ${report.home}
+            </span>
+          </a>
+        </div>
+      </div>
+    `).join('');
+    sliderEl.scrollTo({ left: 0, behavior: 'smooth' });
+  };
+
+  window.changeMonth = function(delta) {
+    currentM += delta;
+    if (currentM < 0) { currentM = 11; currentY--; }
+    else if (currentM > 11) { currentM = 0; currentY++; }
+    renderCalendar(currentY, currentM);
+  };
+
+  function renderCalendar(y, m) {
+    const calendarEl = document.getElementById('calendar');
+    if (!calendarEl) return;
+    const firstDay = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+    
+    let html = `<div class="flex justify-between items-center mb-6 px-2 text-center text-white">
+      <button onclick="changeMonth(-1)" class="p-2">←</button>
+      <div class="font-black text-sm tracking-[0.2em]">${monthNames[m]} ${y}</div>
+      <button onclick="changeMonth(1)" class="p-2">→</button>
+    </div>
+    <div class="grid grid-cols-7 gap-1 text-center text-[9px] font-bold text-gray-600 mb-4 uppercase">
+      <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+    </div>
+    <div class="grid grid-cols-7 gap-y-3 gap-x-1">`;
+
+    for (let i = 0; i < firstDay; i++) html += `<div></div>`;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${String(y).substring(2)}${String(m + 1).padStart(2, '0')}${String(d).padStart(2, '0')}`;
+      const hasReport = availableDates.includes(dateStr);
+      const activeClass = hasReport ? "bg-blue-600 text-white font-black cursor-pointer shadow-lg scale-110" : "text-gray-700";
+      html += `<div class="aspect-square flex items-center justify-center rounded-full text-[12px] transition-all ${activeClass}" 
+        ${hasReport ? `onclick="updateReports('${dateStr}')"` : ''}>${d}</div>`;
+    }
+    calendarEl.innerHTML = html + `</div>`;
+  }
+
+  renderCalendar(currentY, currentM);
 </script>
 
 <style is:global>
